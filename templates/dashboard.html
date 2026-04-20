@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - {{ session.theater_name }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1><i class="fas fa-tachometer-alt"></i> Theater Dashboard</h1>
+        <p class="lead">Welcome to {{ session.theater_name }} monitoring system</p>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header bg-info text-white">
+                <h5><i class="fas fa-desktop"></i> Available Screens</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    {% for screen in screens %}
+                    <div class="col-md-6 mb-3">
+                        <div class="card border-primary">
+                            <div class="card-body text-center">
+                                <h5 class="card-title">{{ screen.name }}</h5>
+                                <p class="card-text">
+                                    <i class="fas fa-chair"></i> {{ screen.total_seats }} seats<br>
+                                    <small class="text-muted">{{ screen.rows }} rows × {{ screen.seats_per_row }} seats</small>
+                                </p>
+                                <a href="{{ url_for('screen_monitor', screen_id=screen.id) }}" 
+                                   class="btn btn-primary">
+                                    <i class="fas fa-video"></i> Start Monitoring
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header bg-warning text-dark">
+                <h5><i class="fas fa-exclamation-triangle"></i> Recent Detections</h5>
+            </div>
+            <div class="card-body">
+                {% if recent_detections %}
+                    {% for detection, screen in recent_detections %}
+                    <div class="alert alert-danger alert-sm mb-2">
+                        <strong>{{ screen.name }}</strong><br>
+                        <small>
+                            Seat: {{ detection.seat_number }}<br>
+                            Time: {{ detection.detection_time.strftime('%H:%M:%S') }}<br>
+                            Confidence: {{ "%.2f"|format(detection.confidence) }}
+                        </small>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted">No recent detections</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header bg-secondary text-white">
+                <h5><i class="fas fa-info-circle"></i> System Status</h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-3">
+                        <div class="border-end">
+                            <h4 class="text-success">{{ screens|length }}</h4>
+                            <small>Active Screens</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border-end">
+                            <h4 class="text-info">{{ recent_detections|length }}</h4>
+                            <small>Recent Alerts</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="border-end">
+                            <h4 class="text-primary">AI</h4>
+                            <small>Detection Active</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <h4 class="text-warning">24/7</h4>
+                        <small>Monitoring</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

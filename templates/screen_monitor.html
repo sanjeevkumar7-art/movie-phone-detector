@@ -1,0 +1,559 @@
+{% extends "base.html" %}
+
+{% block title %}{{ screen.name }} - Monitoring{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                <h5><i class="fas fa-video"></i> {{ screen.name }} - Live Feed</h5>
+                <div>
+                    <button id="startBtn" class="btn btn-success btn-sm">
+                        <i class="fas fa-play"></i> Start Detection
+                    </button>
+                    <button id="stopBtn" class="btn btn-danger btn-sm" style="display:none;">
+                        <i class="fas fa-stop"></i> Stop Detection
+                    </button>
+                </div>
+            </div>
+            <div class="card-body text-center">
+                <div id="videoContainer" style="min-height: 480px; background: #f8f9fa; border-radius: 8px; display: flex; align-items: center; justify-content: center; position: relative;">
+                    <div id="videoPlaceholder">
+                        <i class="fas fa-video-slash fa-5x text-muted mb-3"></i>
+                        <p class="text-muted">Click "Start Detection" to begin monitoring</p>
+                    </div>
+                    
+                    <!-- Loading indicator -->
+                    <div id="loadingIndicator" style="display:none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 10;">
+                        <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-3 text-primary"><strong>Initializing camera...</strong></p>
+                    </div>
+                    
+                    <!-- Video feed -->
+                    <img id="videoFeed" src="" style="display:none; max-width: 100%; max-height: 480px; width: 640px; height: 480px; border-radius: 8px; object-fit: cover; border: 2px solid #007bff;">
+                    
+                    <!-- Error message -->
+                    <div id="errorMessage" style="display:none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 10;">
+                        <div class="alert alert-danger text-center">
+                            <i class="fas fa-exclamation-triangle fa-2x mb-2"></i>
+                            <p id="errorText">Camera initialization failed</p>
+                            <button class="btn btn-outline-danger btn-sm" onclick="retryCamera()">
+                                <i class="fas fa-redo"></i> Retry Camera
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="detectionStatus" class="mt-3">
+                    <span class="badge bg-secondary">Status: Standby</span>
+                    <button id="validateBtn" class="btn btn-sm btn-outline-info ms-2" onclick="validateDetectionSystem()" style="display:none;">
+                        <i class="fas fa-check-circle"></i> Validate System
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card mb-3">
+            <div class="card-header bg-info text-white">
+                <h6><i class="fas fa-list"></i> Recent Detections</h6>
+            </div>
+            <div class="card-body" style="max-height: 300px; overflow-y: auto;">
+                <div id="detectionsList">
+                    <p class="text-muted">No detections yet...</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header bg-warning text-dark">
+                <h6><i class="fas fa-map-marked-alt"></i> Theater Seat Map</h6>
+            </div>
+            <div class="card-body text-center">
+                <img id="seatMap" src="{{ url_for('seat_map', screen_id=screen.id) }}" 
+                     class="img-fluid" style="max-height: 300px;" alt="Theater Seat Map">
+                <button onclick="refreshSeatMap()" class="btn btn-sm btn-outline-primary mt-2">
+                    <i class="fas fa-sync-alt"></i> Refresh Map
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Detection Detail Modal -->
+<div class="modal fade" id="detectionModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title">
+                    <i class="fas fa-mobile-alt"></i> Phone Detection Details
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="modalContent">
+                    <!-- Content will be loaded dynamically -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let detectionActive = false;
+    let detectionInterval;
+    let videoLoadTimeout;
+    const screenId = {{ screen.id }};
+    
+    $('#startBtn').click(function() {
+        startDetection();
+    });
+    
+    $('#stopBtn').click(function() {
+        stopDetection();
+    });
+    
+    function startDetection() {
+        // Show loading immediately with progress
+        showLoading();
+        $('#startBtn').prop('disabled', true);
+        
+        // Update progress bar
+        const progressBar = $('.progress-bar');
+        progressBar.css('width', '20%').text('Testing camera...');
+        
+        // First test camera availability
+        $.get('/test_camera')
+            .done(function(response) {
+                progressBar.css('width', '50%').text('Camera detected...');
+                
+                if (response.status.includes('Camera working')) {
+                    // Camera is available, proceed with detection
+                    setTimeout(() => {
+                        progressBar.css('width', '70%').text('Starting detection...');
+                        initializeDetection();
+                    }, 300);
+                } else {
+                    showError('Camera not available: ' + response.status);
+                }
+            })
+            .fail(function() {
+                showError('Failed to test camera availability');
+            });
+    }
+    
+    function initializeDetection() {
+        const progressBar = $('.progress-bar');
+        progressBar.css('width', '80%').text('Initializing monitoring...');
+        
+        $.get(`/start_detection/${screenId}`)
+            .done(function(response) {
+                if (response.success) {
+                    progressBar.css('width', '90%').text('Starting video feed...');
+                    
+                    detectionActive = true;
+                    $('#startBtn').hide();
+                    $('#stopBtn').show();
+                    
+                    // Start video feed with timeout
+                    setTimeout(() => {
+                        progressBar.css('width', '100%').text('Ready!');
+                        setTimeout(() => {
+                            hideLoading();
+                            startVideoFeed();
+                        }, 500);
+                    }, 300);
+                    
+                    // Start polling for detections
+                    detectionInterval = setInterval(loadDetections, 2000);
+                    
+                    // Start refreshing seat map
+                    setInterval(refreshSeatMap, 10000);
+                    
+                    // Show validate button when detection is active
+                    $('#validateBtn').show();
+                    
+                    updateStatus('Monitoring Active', 'success');
+                } else {
+                    showError('Failed to start detection: ' + response.message);
+                }
+            })
+            .fail(function(xhr) {
+                let errorMsg = 'Failed to start detection';
+                if (xhr.responseJSON && xhr.responseJSON.error) {
+                    errorMsg = xhr.responseJSON.error;
+                }
+                showError(errorMsg);
+            });
+    }
+    
+    function startVideoFeed() {
+        const videoFeed = $('#videoFeed');
+        const videoSrc = '/video_feed?t=' + new Date().getTime();
+        
+        console.log('Starting video feed with source:', videoSrc);
+        
+        // Clear any existing timeout
+        if (videoLoadTimeout) {
+            clearTimeout(videoLoadTimeout);
+        }
+        
+        // Remove any existing event handlers
+        videoFeed.off('load error');
+        
+        // Set up video load timeout (10 seconds)
+        videoLoadTimeout = setTimeout(function() {
+            console.log('Video feed timeout - showing placeholder');
+            hideLoading();
+            $('#videoPlaceholder').show();
+            $('#videoFeed').hide();
+            updateStatus('Camera Ready (No Preview)', 'warning');
+        }, 10000);
+        
+        // Handle video load success
+        videoFeed.on('load', function() {
+            console.log('Video feed loaded successfully');
+            clearTimeout(videoLoadTimeout);
+            hideLoading();
+            $('#videoPlaceholder').hide();
+            $('#errorMessage').hide();
+            videoFeed.show();
+            updateStatus('Monitoring Active', 'success');
+        });
+        
+        // Handle video load error
+        videoFeed.on('error', function() {
+            console.log('Video feed error - but detection may still be working');
+            clearTimeout(videoLoadTimeout);
+            hideLoading();
+            $('#videoPlaceholder').show();
+            updateStatus('Detection Active (No Preview)', 'warning');
+        });
+        
+        // Force immediate display for testing
+        videoFeed.show();
+        
+        // Start the video feed immediately
+        videoFeed.attr('src', videoSrc);
+        
+        // Add fallback: try test feed after 3 seconds if main feed doesn't work
+        setTimeout(function() {
+            if (videoFeed.is(':hidden') || !videoFeed.attr('src')) {
+                console.log('Trying test video feed as fallback...');
+                videoFeed.attr('src', '/test_video_feed?t=' + new Date().getTime());
+            }
+        }, 3000);
+    }
+    
+    function retryVideoFeed() {
+        console.log('Retrying video feed...');
+        const videoFeed = $('#videoFeed');
+        videoFeed.off('load error'); // Remove old event handlers
+        hideError();
+        showLoading();
+        $('#loadingIndicator p').text('Reconnecting video feed...');
+        
+        setTimeout(function() {
+            startVideoFeed();
+        }, 500);
+    }
+    
+    function startVideoRefresh() {
+        // Refresh video feed every 30 seconds to prevent freezing
+        setInterval(function() {
+            if (detectionActive) {
+                const videoFeed = $('#videoFeed');
+                const currentSrc = videoFeed.attr('src');
+                const newSrc = '/video_feed?t=' + new Date().getTime();
+                
+                if (currentSrc !== newSrc) {
+                    console.log('Refreshing video feed...');
+                    videoFeed.attr('src', newSrc);
+                }
+            }
+        }, 30000);
+    }
+    
+    function stopDetection() {
+        $.get('/stop_detection')
+            .done(function(response) {
+                if (response.success) {
+                    detectionActive = false;
+                    $('#stopBtn').hide();
+                    $('#startBtn').show().prop('disabled', false);
+                    $('#videoFeed').hide().attr('src', '');
+                    $('#videoPlaceholder').show();
+                    hideLoading();
+                    $('#errorMessage').hide();
+                    
+                    updateStatus('Standby', 'secondary');
+                    
+                    clearInterval(detectionInterval);
+                    clearTimeout(videoLoadTimeout);
+                }
+            });
+    }
+    
+    function showLoading() {
+        $('#loadingIndicator').show();
+        $('#videoPlaceholder').hide();
+        $('#errorMessage').hide();
+        $('#videoFeed').hide();
+    }
+    
+    function hideLoading() {
+        $('#loadingIndicator').hide();
+    }
+    
+    function showError(message) {
+        hideLoading();
+        $('#videoFeed').hide();
+        $('#videoPlaceholder').hide();
+        $('#errorText').text(message);
+        $('#errorMessage').show();
+        $('#startBtn').prop('disabled', false);
+        updateStatus('Error', 'danger');
+    }
+    
+    function retryCamera() {
+        $('#errorMessage').hide();
+        $('#startBtn').prop('disabled', false).show();
+        $('#stopBtn').hide();
+        $('#videoFeed').hide().attr('src', '');
+        $('#videoPlaceholder').show();
+        updateStatus('Standby', 'secondary');
+        
+        // Clear any running intervals
+        if (detectionInterval) {
+            clearInterval(detectionInterval);
+        }
+        if (videoLoadTimeout) {
+            clearTimeout(videoLoadTimeout);
+        }
+        
+        // Reset detection state
+        detectionActive = false;
+        
+        // Auto-restart detection after brief delay
+        setTimeout(function() {
+            startDetection();
+        }, 1000);
+    }
+    
+    function updateStatus(status, type) {
+        const badge = $('#detectionStatus span');
+        badge.removeClass('bg-secondary bg-success bg-danger bg-warning');
+        badge.addClass(`bg-${type}`);
+        badge.text(`Status: ${status}`);
+    }
+    
+    function loadDetections() {
+        if (!detectionActive) return;
+        
+        $.get(`/detections/${screenId}`)
+            .done(function(detections) {
+                let html = '';
+                if (detections.length === 0) {
+                    html = '<p class="text-muted">No detections yet...</p>';
+                } else {
+                    detections.forEach(function(detection) {
+                        const evidenceImg = detection.evidence_path ? 
+                            `<img src="/evidence/${detection.evidence_path}" style="width: 40px; height: 30px; object-fit: cover; border-radius: 3px; margin-right: 8px;">` : 
+                            '<i class="fas fa-camera text-muted me-2"></i>';
+                        
+                        html += `
+                            <div class="alert alert-danger alert-sm mb-2 detection-item" 
+                                 data-detection='${JSON.stringify(detection)}' 
+                                 style="cursor: pointer; border-left: 4px solid #dc3545;">
+                                <div class="d-flex align-items-center">
+                                    ${evidenceImg}
+                                    <div class="flex-grow-1">
+                                        <strong>📱 Seat ${detection.seat_number}</strong><br>
+                                        <small class="text-muted">
+                                            🕒 ${detection.time}<br>
+                                            📊 Confidence: ${detection.confidence}
+                                            ${detection.resolved ? '<span class="badge bg-success ms-1">✅ Resolved</span>' : '<span class="badge bg-warning text-dark ms-1">⚠️ Active</span>'}
+                                        </small>
+                                    </div>
+                                    <div class="text-end">
+                                        <i class="fas fa-eye text-primary"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                }
+                $('#detectionsList').html(html);
+                
+                // Add click handlers for detection items
+                $('.detection-item').click(function() {
+                    const detection = JSON.parse($(this).attr('data-detection'));
+                    showDetectionDetails(detection);
+                });
+            })
+            .fail(function() {
+                console.log('Failed to load detections');
+            });
+    }
+    
+    function showDetectionDetails(detection) {
+        const evidencePhoto = detection.evidence_path ? 
+            `<img src="/evidence/${detection.evidence_path}" class="img-fluid rounded shadow" alt="Evidence Photo" style="max-height: 300px; border: 2px solid #dc3545;">` :
+            '<div class="alert alert-warning">No evidence photo available</div>';
+            
+        const modalContent = `
+            <div class="row">
+                <div class="col-md-6">
+                    <h6><i class="fas fa-info-circle"></i> Detection Information</h6>
+                    <table class="table table-sm table-striped">
+                        <tr><td><strong>📱 Device Type:</strong></td><td>Mobile Phone</td></tr>
+                        <tr><td><strong>🪑 Seat Number:</strong></td><td><span class="badge bg-danger">${detection.seat_number}</span></td></tr>
+                        <tr><td><strong>🕒 Detection Time:</strong></td><td>${detection.time}</td></tr>
+                        <tr><td><strong>📊 Confidence Score:</strong></td><td>
+                            <div class="progress" style="height: 20px;">
+                                <div class="progress-bar bg-danger" role="progressbar" style="width: ${parseFloat(detection.confidence) * 100}%">
+                                    ${(parseFloat(detection.confidence) * 100).toFixed(1)}%
+                                </div>
+                            </div>
+                        </td></tr>
+                        <tr><td><strong>⚠️ Status:</strong></td><td>
+                            ${detection.resolved ? 
+                                '<span class="badge bg-success"><i class="fas fa-check"></i> Resolved</span>' : 
+                                '<span class="badge bg-warning text-dark"><i class="fas fa-exclamation-triangle"></i> Needs Attention</span>'
+                            }
+                        </td></tr>
+                    </table>
+                    
+                    <div class="mt-3">
+                        <h6><i class="fas fa-tools"></i> Actions</h6>
+                        <button class="btn btn-success btn-sm" onclick="resolveDetection(${detection.id})">
+                            <i class="fas fa-check"></i> Mark as Resolved
+                        </button>
+                        <button class="btn btn-primary btn-sm" onclick="downloadEvidence('${detection.evidence_path}')">
+                            <i class="fas fa-download"></i> Download Evidence
+                        </button>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <h6><i class="fas fa-camera"></i> Evidence Photo</h6>
+                    <div class="text-center">
+                        ${evidencePhoto}
+                    </div>
+                    <div class="mt-2">
+                        <small class="text-muted">
+                            <i class="fas fa-info-circle"></i> 
+                            This image was captured automatically when the phone was detected. 
+                            The red bounding box highlights the detected device.
+                        </small>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        $('#modalContent').html(modalContent);
+        $('#detectionModal').modal('show');
+    }
+    
+    function refreshSeatMap() {
+        const timestamp = new Date().getTime();
+        $('#seatMap').attr('src', `{{ url_for('seat_map', screen_id=screen.id) }}?t=${timestamp}`);
+    }
+    
+    function resolveDetection(detectionId) {
+        // TODO: Implement resolve detection API call
+        alert('Detection marked as resolved! (Feature to be implemented)');
+        $('#detectionModal').modal('hide');
+        loadDetections(); // Refresh the list
+    }
+    
+    function downloadEvidence(evidencePath) {
+        if (evidencePath) {
+            const link = document.createElement('a');
+            link.href = `/evidence/${evidencePath}`;
+            link.download = evidencePath;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        } else {
+            alert('No evidence photo available for download');
+        }
+    }
+    
+    function validateDetectionSystem() {
+        console.log('Validating detection system...');
+        
+        // Show loading state
+        $('#validateBtn').html('<i class="fas fa-spinner fa-spin"></i> Validating...').prop('disabled', true);
+        
+        $.get(`/detection_stats/${screenId}`)
+            .done(function(stats) {
+                console.log('Detection stats:', stats);
+                
+                let validationMessage = '';
+                let alertType = 'success';
+                
+                if (stats.validation.system_working) {
+                    validationMessage = `✅ System Working Perfectly!\n\n`;
+                    validationMessage += `📊 Total Detections: ${stats.total_detections}\n`;
+                    validationMessage += `🕒 Recent Detections (10min): ${stats.recent_detections}\n`;
+                    if (stats.latest_detection) {
+                        validationMessage += `📱 Latest Detection: Seat ${stats.latest_detection.seat} at ${stats.latest_detection.time}\n`;
+                        validationMessage += `📈 Confidence: ${(stats.latest_detection.confidence * 100).toFixed(1)}%\n`;
+                    }
+                    validationMessage += `\n🎥 Camera Status: ${stats.camera_status.running ? 'Running' : 'Stopped'}\n`;
+                    validationMessage += `🔍 Detection: ${stats.camera_status.detection_enabled ? 'Active' : 'Inactive'}\n`;
+                    validationMessage += `📥 Queue Size: ${stats.camera_status.queue_size}`;
+                } else {
+                    alertType = 'warning';
+                    validationMessage = `⚠️ System Issues Detected:\n\n`;
+                    if (!stats.camera_status.running) {
+                        validationMessage += `❌ Camera not running\n`;
+                    }
+                    if (!stats.camera_status.detection_enabled) {
+                        validationMessage += `❌ Detection not enabled\n`;
+                    }
+                    if (stats.total_detections === 0) {
+                        validationMessage += `❌ No detections recorded yet\n`;
+                    }
+                    validationMessage += `\nPlease restart detection or check camera connection.`;
+                }
+                
+                // Show validation results
+                const alertClass = alertType === 'success' ? 'alert-success' : 'alert-warning';
+                const validationHtml = `
+                    <div class="alert ${alertClass} alert-dismissible fade show mt-3" role="alert">
+                        <h6><i class="fas fa-${alertType === 'success' ? 'check-circle' : 'exclamation-triangle'}"></i> Detection System Validation</h6>
+                        <pre style="white-space: pre-wrap; font-family: inherit; margin: 0;">${validationMessage}</pre>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                `;
+                
+                // Remove any existing validation alerts
+                $('.alert[role="alert"]:contains("Detection System Validation")').remove();
+                
+                // Add new validation alert
+                $('#detectionStatus').after(validationHtml);
+                
+                // Reset button
+                $('#validateBtn').html('<i class="fas fa-check-circle"></i> Validate System').prop('disabled', false);
+            })
+            .fail(function() {
+                console.error('Failed to get detection stats');
+                alert('❌ Failed to validate system. Please check console for errors.');
+                $('#validateBtn').html('<i class="fas fa-check-circle"></i> Validate System').prop('disabled', false);
+            });
+    }
+    
+    // Load initial detections
+    loadDetections();
+    
+    // Auto-refresh seat map every 30 seconds
+    setInterval(refreshSeatMap, 30000);
+</script>
+{% endblock %}

@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Video Feed Test</title>
+    <style>
+        body { margin: 20px; font-family: Arial, sans-serif; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .video-container { text-align: center; margin: 20px 0; }
+        img { border: 2px solid #007bff; border-radius: 8px; max-width: 100%; }
+        .status { margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 4px; }
+        .button { padding: 10px 20px; margin: 5px; border: none; border-radius: 4px; cursor: pointer; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-warning { background: #ffc107; color: black; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Video Feed Test Page</h1>
+        
+        <div class="status">
+            <h3>Camera Status</h3>
+            <div id="status-info">Loading...</div>
+            <button class="button btn-primary" onclick="checkStatus()">Refresh Status</button>
+            <button class="button btn-success" onclick="startCamera()">Start Camera</button>
+        </div>
+        
+        <div class="video-container">
+            <h3>Live Video Feed</h3>
+            <img id="videoFeed" src="" alt="Video Feed" style="display:none;">
+            <div id="videoPlaceholder" style="width: 640px; height: 480px; background: #f0f0f0; display: flex; align-items: center; justify-content: center; margin: 0 auto; border: 2px dashed #ccc;">
+                <span>Click "Start Video Feed" to begin</span>
+            </div>
+            <br>
+            <button class="button btn-primary" onclick="startVideoFeed()">Start Video Feed</button>
+            <button class="button btn-warning" onclick="startTestFeed()">Start Test Feed</button>
+            <button class="button btn-warning" onclick="stopVideoFeed()">Stop Video Feed</button>
+        </div>
+        
+        <div class="status">
+            <h3>Debug Log</h3>
+            <div id="debug-log" style="height: 200px; overflow-y: scroll; background: black; color: lime; padding: 10px; font-family: monospace;"></div>
+        </div>
+    </div>
+
+    <script>
+        function log(message) {
+            const debugLog = document.getElementById('debug-log');
+            const timestamp = new Date().toLocaleTimeString();
+            debugLog.innerHTML += `[${timestamp}] ${message}\n`;
+            debugLog.scrollTop = debugLog.scrollHeight;
+        }
+        
+        function checkStatus() {
+            log('Checking camera status...');
+            fetch('/camera_status')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('status-info').innerHTML = `
+                        <strong>Camera Manager:</strong> ${data.camera_manager_exists ? 'Available' : 'Not Available'}<br>
+                        <strong>Camera Running:</strong> ${data.camera_running ? 'Yes' : 'No'}<br>
+                        <strong>Detection Enabled:</strong> ${data.detection_enabled ? 'Yes' : 'No'}<br>
+                        <strong>Queue Size:</strong> ${data.queue_size}<br>
+                        <strong>Current Frame:</strong> ${data.current_frame_available ? 'Available' : 'Not Available'}
+                    `;
+                    log(`Status: Running=${data.camera_running}, Queue=${data.queue_size}`);
+                })
+                .catch(error => {
+                    log('Error checking status: ' + error);
+                });
+        }
+        
+        function startCamera() {
+            log('Starting camera via detection endpoint...');
+            fetch('/start_detection/2')
+                .then(response => response.json())
+                .then(data => {
+                    log('Camera start response: ' + JSON.stringify(data));
+                    setTimeout(checkStatus, 1000);
+                })
+                .catch(error => {
+                    log('Error starting camera: ' + error);
+                });
+        }
+        
+        function startVideoFeed() {
+            log('Starting main video feed...');
+            const videoFeed = document.getElementById('videoFeed');
+            const placeholder = document.getElementById('videoPlaceholder');
+            
+            videoFeed.onload = function() {
+                log('Video feed loaded successfully!');
+                placeholder.style.display = 'none';
+                videoFeed.style.display = 'block';
+            };
+            
+            videoFeed.onerror = function() {
+                log('Video feed error occurred');
+            };
+            
+            const videoSrc = '/video_feed?t=' + new Date().getTime();
+            log('Setting video source: ' + videoSrc);
+            videoFeed.src = videoSrc;
+        }
+        
+        function startTestFeed() {
+            log('Starting test video feed...');
+            const videoFeed = document.getElementById('videoFeed');
+            const placeholder = document.getElementById('videoPlaceholder');
+            
+            videoFeed.onload = function() {
+                log('Test video feed loaded successfully!');
+                placeholder.style.display = 'none';
+                videoFeed.style.display = 'block';
+            };
+            
+            videoFeed.onerror = function() {
+                log('Test video feed error occurred');
+            };
+            
+            const videoSrc = '/test_video_feed?t=' + new Date().getTime();
+            log('Setting test video source: ' + videoSrc);
+            videoFeed.src = videoSrc;
+        }
+        
+        function stopVideoFeed() {
+            log('Stopping video feed...');
+            const videoFeed = document.getElementById('videoFeed');
+            const placeholder = document.getElementById('videoPlaceholder');
+            
+            videoFeed.src = '';
+            videoFeed.style.display = 'none';
+            placeholder.style.display = 'flex';
+            placeholder.innerHTML = '<span>Video feed stopped</span>';
+        }
+        
+        // Auto-check status on page load
+        window.onload = function() {
+            log('Page loaded - checking initial status...');
+            checkStatus();
+        };
+    </script>
+</body>
+</html>
